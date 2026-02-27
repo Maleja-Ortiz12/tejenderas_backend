@@ -46,7 +46,7 @@ class SaleController extends Controller
     private function getTransactionsData(Request $request)
     {
         $salesQuery = Sale::with(['user', 'items.product']);
-        $ordersQuery = \App\Models\Order::with('user', 'items')->where('status', 'completed');
+        $ordersQuery = \App\Models\Order::with(['user', 'items.product'])->where('status', 'completed');
         $paymentsQuery = \App\Models\ContractPayment::with('contract');
 
         if ($request->period === 'daily') {
@@ -84,40 +84,56 @@ class SaleController extends Controller
         $perfumeriaCatalogoTotal = 0;
         $perfumeriaDisenadorTotal = 0;
 
-        $sales->transform(function ($sale) use (&$telasTotal, &$perfumeriaTotal, &$perfumeriaCatalogoTotal, &$perfumeriaDisenadorTotal) {
-            $sale->type = 'pos';
-            $saleTelas = 0;
-            $salePerfumeria = 0;
-            $salePerfumeriaCatalogo = 0;
-            $salePerfumeriaDisenador = 0;
-            
-            foreach ($sale->items as $item) {
-                if ($item->product && $item->product->category === 'perfumeria') {
-                    $salePerfumeria += $item->subtotal;
-                    if ($item->product->subcategory === 'catalogo') {
-                        $salePerfumeriaCatalogo += $item->subtotal;
-                    } elseif ($item->product->subcategory === 'disenador') {
-                        $salePerfumeriaDisenador += $item->subtotal;
+        $processItems = function ($items) use (&$telasTotal, &$perfumeriaTotal, &$perfumeriaCatalogoTotal, &$perfumeriaDisenadorTotal) {
+            $catTotals = [
+                'telas' => 0,
+                'perfumeria' => 0,
+                'perfumeria_catalogo' => 0,
+                'perfumeria_disenador' => 0
+            ];
+
+            foreach ($items as $item) {
+                $subtotal = (float) $item->subtotal;
+                $category = $item->product ? $item->product->category : null;
+                $subcategory = $item->product ? $item->product->subcategory : null;
+
+                if ($category === 'perfumeria') {
+                    $catTotals['perfumeria'] += $subtotal;
+                    $perfumeriaTotal += $subtotal;
+                    if ($subcategory === 'catalogo') {
+                        $catTotals['perfumeria_catalogo'] += $subtotal;
+                        $perfumeriaCatalogoTotal += $subtotal;
+                    } elseif ($subcategory === 'disenador') {
+                        $catTotals['perfumeria_disenador'] += $subtotal;
+                        $perfumeriaDisenadorTotal += $subtotal;
                     }
                 } else {
-                    $saleTelas += $item->subtotal;
+                    // Default to 'telas' if no product or category is something else
+                    $catTotals['telas'] += $subtotal;
+                    $telasTotal += $subtotal;
                 }
             }
-            $telasTotal += $saleTelas;
-            $perfumeriaTotal += $salePerfumeria;
-            $perfumeriaCatalogoTotal += $salePerfumeriaCatalogo;
-            $perfumeriaDisenadorTotal += $salePerfumeriaDisenador;
+            return $catTotals;
+        };
 
-            $sale->telas_total = $saleTelas;
-            $sale->perfumeria_total = $salePerfumeria;
-            $sale->perfumeria_catalogo_total = $salePerfumeriaCatalogo;
-            $sale->perfumeria_disenador_total = $salePerfumeriaDisenador;
+        $sales->transform(function ($sale) use ($processItems) {
+            $sale->type = 'pos';
+            $catTotals = $processItems($sale->items);
+            $sale->telas_total = $catTotals['telas'];
+            $sale->perfumeria_total = $catTotals['perfumeria'];
+            $sale->perfumeria_catalogo_total = $catTotals['perfumeria_catalogo'];
+            $sale->perfumeria_disenador_total = $catTotals['perfumeria_disenador'];
             return $sale;
         });
 
-        $orders->transform(function($order) {
+        $orders->transform(function($order) use ($processItems) {
             $order->type = 'order';
-            $order->payment_method = 'web'; 
+            $order->payment_method = 'web';
+            $catTotals = $processItems($order->items);
+            $order->telas_total = $catTotals['telas'];
+            $order->perfumeria_total = $catTotals['perfumeria'];
+            $order->perfumeria_catalogo_total = $catTotals['perfumeria_catalogo'];
+            $order->perfumeria_disenador_total = $catTotals['perfumeria_disenador'];
             return $order;
         });
 
