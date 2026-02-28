@@ -78,7 +78,7 @@ class ProductController extends Controller
             $product = Product::create(collect($validated)->except(['attributes', 'attribute_values'])->toArray());
             
             $this->syncAttributesAndValues($request, $product);
-            $this->updateVariantsJson($product);
+            $product->updateVariantsJson();
 
             DB::commit();
             return response()->json($product->load(['category', 'subcategory', 'attributes', 'attributeValues.attribute']), 201);
@@ -127,7 +127,7 @@ class ProductController extends Controller
             $product->update(collect($validated)->except(['attributes', 'attribute_values'])->toArray());
 
             $this->syncAttributesAndValues($request, $product);
-            $this->updateVariantsJson($product);
+            $product->updateVariantsJson();
 
             DB::commit();
             return response()->json($product->load(['category', 'subcategory', 'attributes', 'attributeValues.attribute']));
@@ -216,35 +216,6 @@ class ProductController extends Controller
         }
     }
 
-    private function updateVariantsJson(Product $product)
-    {
-        try {
-            $variantData = [];
-            $product->load('attributeValues.attribute');
-            foreach ($product->attributeValues->groupBy('attribute_id') as $attrId => $vals) {
-                $firstVal = $vals->first();
-                if (!$firstVal || !$firstVal->attribute) continue;
-
-                $attr = $firstVal->attribute;
-                $variantData[] = [
-                    'id' => (string)$attr->id,
-                    'name' => $attr->name,
-                    'values' => $vals->map(function($v) {
-                        return [
-                            'id' => (string)$v->id,
-                            'name' => $v->name,
-                            'priceDelta' => (float)($v->pivot->price_delta ?? 0),
-                            'stock' => (int)($v->pivot->stock ?? 0),
-                        ];
-                    })->toArray()
-                ];
-            }
-            $product->update(['variants' => $variantData]);
-        } catch (\Throwable $e) {
-            \Log::warning('Variant JSON population failed: ' . $e->getMessage());
-        }
-    }
-
     /**
      * Display the specified resource.
      */
@@ -275,6 +246,21 @@ class ProductController extends Controller
         }
         $product->increment('stock', $quantity);
         $product->increment('stock_in_total', $quantity);
+
+        // Update variant-specific stock if applicable
+        $variantValueIds = $request->input('variant_value_ids', []);
+        if (!empty($variantValueIds)) {
+            foreach ($variantValueIds as $valueId) {
+                DB::table('product_attribute_values')
+                    ->where('product_id', $product->id)
+                    ->where('attribute_value_id', $valueId)
+                    ->update([
+                        'stock' => DB::raw("stock + $quantity"),
+                        'stock_in_total' => DB::raw("stock_in_total + $quantity"),
+                    ]);
+            }
+            $product->updateVariantsJson();
+        }
 
         StockMovement::create([
             'product_id' => $product->id,

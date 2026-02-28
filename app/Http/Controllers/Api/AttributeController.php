@@ -47,7 +47,7 @@ class AttributeController extends Controller
     public function storeValue(Request $request, Attribute $attribute)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:attribute_values,name,NULL,id,attribute_id,' . $attribute->id,
             'price_delta' => 'nullable|numeric',
         ]);
 
@@ -63,7 +63,7 @@ class AttributeController extends Controller
     public function updateValue(Request $request, Attribute $attribute, \App\Models\AttributeValue $value)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:attribute_values,name,' . $value->id . ',id,attribute_id,' . $attribute->id,
             'price_delta' => 'nullable|numeric',
         ]);
 

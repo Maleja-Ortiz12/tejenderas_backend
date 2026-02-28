@@ -56,7 +56,38 @@ class Product extends Model
     public function attributeValues()
     {
         return $this->belongsToMany(AttributeValue::class, 'product_attribute_values')
-                    ->withPivot(['price_delta', 'image', 'base_price', 'markup', 'markup_type', 'stock'])
+                    ->withPivot(['price_delta', 'image', 'base_price', 'markup', 'markup_type', 'stock', 'stock_in_total', 'stock_out_total'])
                     ->withTimestamps();
+    }
+
+    public function updateVariantsJson()
+    {
+        try {
+            $variantData = [];
+            $this->load('attributeValues.attribute');
+            foreach ($this->attributeValues->groupBy('attribute_id') as $attrId => $vals) {
+                $firstVal = $vals->first();
+                if (!$firstVal || !$firstVal->attribute) continue;
+
+                $attr = $firstVal->attribute;
+                $variantData[] = [
+                    'id' => (string)$attr->id,
+                    'name' => $attr->name,
+                    'values' => $vals->map(function($v) {
+                        return [
+                            'id' => (string)$v->id,
+                            'name' => $v->name,
+                            'priceDelta' => (float)($v->pivot->price_delta ?? 0),
+                            'stock' => (int)($v->pivot->stock ?? 0),
+                            'stock_in_total' => (int)($v->pivot->stock_in_total ?? 0),
+                            'stock_out_total' => (int)($v->pivot->stock_out_total ?? 0),
+                        ];
+                    })->toArray()
+                ];
+            }
+            $this->update(['variants' => $variantData]);
+        } catch (\Throwable $e) {
+            \Log::warning('Variant JSON population failed for product ' . $this->id . ': ' . $e->getMessage());
+        }
     }
 }

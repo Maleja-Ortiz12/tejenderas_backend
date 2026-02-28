@@ -225,7 +225,13 @@ class SaleController extends Controller
                         $unitPrice += ($vInfo['priceDelta'] ?? 0);
                         
                         // We need to find the specific value_id. 
-                        $attrValue = \App\Models\AttributeValue::where('name', $vInfo['value'])->first();
+                        // The frontend sends { option: "Color", value: "Rojo" }
+                        $attrValue = \App\Models\AttributeValue::where('name', $vInfo['value'])
+                            ->whereHas('attribute', function($q) use ($vInfo) {
+                                $q->where('name', $vInfo['option']);
+                            })
+                            ->first();
+
                         if ($attrValue) {
                             $pivot = DB::table('product_attribute_values')
                                 ->where('product_id', $product->id)
@@ -239,7 +245,10 @@ class SaleController extends Controller
                             if ($pivot) {
                                 DB::table('product_attribute_values')
                                     ->where('id', $pivot->id)
-                                    ->decrement('stock', $item['quantity']);
+                                    ->update([
+                                        'stock' => DB::raw("stock - " . $item['quantity']),
+                                        'stock_out_total' => DB::raw("stock_out_total + " . $item['quantity'])
+                                    ]);
                             }
                         }
                     }
@@ -247,6 +256,10 @@ class SaleController extends Controller
 
                 $subtotal = $unitPrice * $item['quantity'];
                 $total += $subtotal;
+
+                if ($variantsInput && is_array($variantsInput)) {
+                    $product->updateVariantsJson();
+                }
 
                 $itemsData[] = [
                     'product_id' => $product->id,
