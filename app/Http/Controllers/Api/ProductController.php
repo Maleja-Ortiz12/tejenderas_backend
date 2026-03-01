@@ -66,8 +66,11 @@ class ProductController extends Controller
         $validated = $this->validateProduct($request);
 
         try {
-            if ($request->hasFile('image')) {
-                $validated['image'] = Cloudinary::upload($request->file('image')->getRealPath())->getSecurePath();
+            if ($request->hasFile('image') && $request->file('image')) {
+                $result = Cloudinary::upload($request->file('image')->getRealPath());
+                if ($result) {
+                    $validated['image'] = $result->getSecurePath();
+                }
             }
 
             if ($request->hasFile('images')) {
@@ -112,8 +115,11 @@ class ProductController extends Controller
         $validated = $this->validateProduct($request, $product->id);
 
         try {
-            if ($request->hasFile('image')) {
-                $validated['image'] = Cloudinary::upload($request->file('image')->getRealPath())->getSecurePath();
+            if ($request->hasFile('image') && $request->file('image')) {
+                $result = Cloudinary::upload($request->file('image')->getRealPath());
+                if ($result) {
+                    $validated['image'] = $result->getSecurePath();
+                }
             }
 
             if ($request->hasFile('images')) {
@@ -175,8 +181,20 @@ class ProductController extends Controller
     private function handleMultipleImages($imageFiles)
     {
         $galleryPaths = [];
+        if (!is_array($imageFiles) && !($imageFiles instanceof \Traversable)) {
+            $imageFiles = [$imageFiles];
+        }
         foreach ($imageFiles as $imgFile) {
-            $galleryPaths[] = Cloudinary::upload($imgFile->getRealPath())->getSecurePath();
+            if ($imgFile) {
+                try {
+                    $result = Cloudinary::upload($imgFile->getRealPath());
+                    if ($result) {
+                        $galleryPaths[] = $result->getSecurePath();
+                    }
+                } catch (\Throwable $e) {
+                    \Log::error('Cloudinary gallery upload error: ' . $e->getMessage());
+                }
+            }
         }
         return $galleryPaths;
     }
@@ -207,9 +225,15 @@ class ProductController extends Controller
                     'stock' => (isset($valueStocks[$valueId]) ? $valueStocks[$valueId] : 0),
                 ];
 
-                if (isset($images[$valueId])) {
-                    $path = Cloudinary::upload($images[$valueId]->getRealPath())->getSecurePath();
-                    $pivotData['image'] = $path;
+                if (isset($images[$valueId]) && $images[$valueId]) {
+                    try {
+                        $result = Cloudinary::upload($images[$valueId]->getRealPath());
+                        if ($result) {
+                            $pivotData['image'] = $result->getSecurePath();
+                        }
+                    } catch (\Throwable $e) {
+                        \Log::error('Cloudinary variant upload error: ' . $e->getMessage());
+                    }
                 } elseif ($request->input("keep_value_image_{$valueId}")) {
                     $existing = $product->attributeValues()->where('attribute_values.id', $valueId)->first();
                     if ($existing && $existing->pivot->image) {
